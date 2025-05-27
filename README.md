@@ -1,13 +1,7 @@
 # RSA-based-Public-key-Certification-Authority-CA-
 Project
 3
-_
-_
-Report(2022577 and 2022583)
-Programming_
-Language: Python
-Porblem statement
-As per the algorithm outlined in the assignment, we have been assigned Project Zero,
+Porblem statement: As per the algorithm outlined in the assignment, we have been assigned Project Zero,
 which is a RSA-based Public-key Certification Authority (CA) and we followed all the
 assumptions as given in this assignment. For the security purpose , every client will
 generate its private and public key using RSA Algorithm.
