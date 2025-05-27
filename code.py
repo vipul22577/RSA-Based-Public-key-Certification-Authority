@@ -1,0 +1,160 @@
+import gmpy2
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+import json
+import time
+from Crypto.Cipher import PKCS1_OAEP
+
+#verfy the certificate 
+def verify_certificate(certificate, ca_public_key):
+    cert_data, encrypted_signature = certificate["CERT"]
+    cert_str = json.dumps(cert_data, sort_keys=True).encode()
+    hash_obj = SHA256.new(cert_str)
+    encrypted_signature_bytes = bytes.fromhex(encrypted_signature)
+    try:
+        pkcs1_15.new(ca_public_key).verify(hash_obj, encrypted_signature_bytes)
+        print("Certificate verification successful!")
+    except ValueError:
+        print("Certificate verification failed.")
+        
+#certificate issued by CA
+def CA_issued_certificate(client_id, client_pub_key):
+    issue_time = int(time.time())
+    duration = 3600  # Validity duration: 1 hour
+    CA_ID = "CA_ID25608"
+    cert_data = (client_id, (int(client_pub_key[0]), int(client_pub_key[1])), issue_time, duration, CA_ID)
+    cert_str = json.dumps(cert_data, sort_keys=True).encode()
+    hash_obj = SHA256.new(cert_str)
+    sig = pkcs1_15.new(CA_KEY).sign(hash_obj)  # Sign with CA private key
+    encrypted_cert =sig.hex()
+    return {"CERT": (cert_data, encrypted_cert)}
+
+#cleint register for getting certificate 
+def register_client(client_id, client_pub_key):
+    CLIENTS[client_id] = {
+        "public_key": client_pub_key,
+        "certificate": CA_issued_certificate(client_id, client_pub_key)
+    }
+    return CLIENTS[client_id]["certificate"]
+
+#if client is regsiter to CA , then certificate will be provided by CA
+def client_certificate(requester_id, target_id):
+    if target_id in CLIENTS:
+        print(f"{requester_id} requested the certificate of {target_id} from CA.")
+        return CLIENTS[target_id]["certificate"]
+    else:
+        print(f"Client {target_id} is not registered with CA.")
+        return None
+
+# encryption message using another client's public key 
+def encrypt_message(message, receiver_public_key):
+    rsa_key = RSA.construct((int(receiver_public_key[0]), int(receiver_public_key[1])))
+    cipher_rsa = PKCS1_OAEP.new(rsa_key)
+    encryp_message = cipher_rsa.encrypt(message.encode())
+    return encryp_message
+
+# decryption message by client's private key 
+def decrypt_message(encryp_message, private_key, e, p_val, q_val):
+    n = int(private_key[0])
+    d = int(private_key[1])
+    e_int = int(e)
+    p_int = int(p_val)
+    q_int = int(q_val)
+    private_key_sc = (n, e_int, d, p_int, q_int)
+    rsa_key = RSA.construct(private_key_sc)
+    cipher_rsa = PKCS1_OAEP.new(rsa_key)
+    decryp_message = cipher_rsa.decrypt(encryp_message)
+    return decryp_message
+
+#certification request by client 
+def request_certificate(client_id, public_key):
+    return register_client(client_id, public_key)
+
+
+#To choose the value of e which is less than n and gcd of e and z must be equal to 1
+def choose_e(n, z, index):
+    prime_numbers = [3, 5, 7, 257, 353, 1031, 4099, 65521, 65537]  # Common primes
+    e = prime_numbers[index]
+    if gmpy2.gcd(e, z) == 1 and e < n:
+        return gmpy2.mpz(e)
+    return choose_e(n, z, index + 1)
+
+
+#Generate the key value pair which are private and public key
+def generate_rsa_keypair(p, q):
+    n = p * q
+    z = (p - 1) * (q - 1)
+    e = choose_e(n, z, 0)
+    d = gmpy2.invert(e, z)
+    return (n, e), (n, d)  # Return (Public Key), (Private Key)
+
+
+CA_KEY = RSA.generate(2048)  # CA's private key
+CA_PUBLIC_KEY = CA_KEY.publickey()  # CA's public key
+
+CLIENTS = {}  # Stores registered clients
+#Large prime number which are about 1024 bit long 
+p_B = 121699082026139069365281667424176290227165883485912973419642777221892008366898613934846701116236561738177806463019569608912241272431543246559182842227749717400745254461748535855428754798106084326688330304553797284433408780767822242853556674736358226953443119660650211278823092710793421360123140224814714827037
+q_B = 18631086690591487753431962575045018274725292419023294826025116069171510351498840032830112440332678720543484483145244734665324639003116075045359993309938575776980877102558766023991933016639354462349547225605285369347664210982185535050262488040706963374581595306858684408258036616850820500024811210829788346911
+
+p_A=2215945576826724176343811696097259049787536745222409556895073864570182478127467657568000652460519120578781025460526430582533660966581027368697542894095456686295027495281795720681758968114526526892117308372978627563974290641142756075909748079326016871765454726545898530713393403501535549262891468501298176373
+q_A=4429490184260989335508992607642769401301995282955161398654795729665859852268698366738113118726357439577885207206446186725209569052704261368446953251305407310315430241513040284118493150774018856074221653523917220183854014148121949723794014674449855049368066260811094364033391949303379633764290386538267638719
+
+#genration of key-paris which are generated by itself i.e. clientA and clientB
+public_key_A, private_key_A = generate_rsa_keypair(p_A, q_A)
+public_key_B, private_key_B = generate_rsa_keypair(p_B, q_B)
+
+print(public_key_A,"\nand",public_key_B)
+
+#request by clientA, to get the certificate from CA 
+cert_A = request_certificate("ID1", public_key_A)
+
+#request by clientB, to get the certificate from CA 
+cert_B = request_certificate("ID2", public_key_B)
+
+
+
+#certificate of clients
+print("\nCertificate A:\n", json.dumps(cert_A, indent=4))
+print("\nCertificate B:\n", json.dumps(cert_B, indent=4))
+
+
+#verify certificates 
+verify_certificate(cert_A, CA_PUBLIC_KEY)
+verify_certificate(cert_B, CA_PUBLIC_KEY)
+
+# client A requests Client B's certificate from the CA
+cert_B_received = client_certificate("ID1", "ID2")
+print("Extracted Public Key of Client B (from CA):", cert_B_received["CERT"][0][1])
+
+print("Client A sending messages to Client B")
+messages_from_clientA = ["Hello1","Hello2","Hello3"]
+for idx, msg in enumerate(messages_from_clientA, start=1):
+    # Encrypt using Client B's public key (from certificate)
+    encrypted_message = encrypt_message(msg, cert_B["CERT"][0][1])
+    print(encrypted_message)
+    # Decrypt using Client B's private key by client B
+    decrypted_message = decrypt_message(encrypted_message, private_key_B, cert_B["CERT"][0][1][1], p_B, q_B)
+    print(decrypted_message)
+    decrypted_text = decrypted_message.decode('utf-8')
+    print(f"Client B decrypted message: {decrypted_text}")
+    if msg == decrypted_text:
+        print("ACK", idx)
+        
+print("Client B sending messages to Client A")
+# Client B requests Client A's certificate from the CA
+cert_A_received = client_certificate("ID2", "ID1")
+print("Extracted Public Key of Client A (from CA):", cert_A_received["CERT"][0][1])
+messages_from_clientB =["Hello1","Hello2","Hello3"]
+for idx, msg in enumerate(messages_from_clientB, start=1):
+    # Encrypt using Client A's public key (from certificate)
+    encrypted_message = encrypt_message(msg, cert_A["CERT"][0][1])
+    print(encrypted_message)
+    # Decrypt using Client A's private key; note: use Client A's public exponent and (p_A, q_A)
+    decrypted_message = decrypt_message(encrypted_message, private_key_A, cert_A["CERT"][0][1][1], p_A, q_A)
+    print(decrypted_message)
+    decrypted_text = decrypted_message.decode('utf-8')
+    print(f"Client A decrypted message: {decrypted_text}")
+    if msg == decrypted_text:
+        print("ACK", idx)
